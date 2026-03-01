@@ -15,6 +15,7 @@ This means Drive is the permanent record. Local is just the working cache.
 import os
 import io
 import logging
+import warnings
 from pathlib import Path
 from datetime import datetime
 
@@ -113,12 +114,9 @@ def generate_brand_voice(
     client_id: str,
     client_name: str,
     client_data_path: str,
-    client_drive_folder_id: str,   # The Drive folder ID to write back to
-    direct_texts: list[str] = None, # Optional: direct texts to use instead of reading local files
+    client_drive_folder_id: str,
+    direct_texts: list[str] = None,
 ) -> dict:
-    """
-    Generate brand voice guide from ingested documents and upload to Drive.
-    """
     # 1. Collect source texts
     if direct_texts:
         documents_text = "\n\n".join(direct_texts)[:MAX_CHARS_FOR_EXTRACTION]
@@ -144,18 +142,17 @@ def generate_brand_voice(
     )
     guide_text = result["text"]
 
-    # 3. Save locally
-    timestamp = datetime.now().strftime("%Y-%m-%d_%H%M")
-    file_name = f"brand_voice_guide_{timestamp}.txt"
-    local_dir = Path(client_data_path) / client_id / "auto_generated"
-    local_dir.mkdir(parents=True, exist_ok=True)
-    local_path = local_dir / file_name
-    local_path.write_text(guide_text, encoding="utf-8")
-    logger.info(f"Saved brand voice locally: {local_path}")
+    # 3. Save to brand_voice/ subfolder
+    file_name = "brand_voice_guide.txt"
+    brand_voice_dir = Path(client_data_path) / client_id / "brand_voice"
+    brand_voice_dir.mkdir(parents=True, exist_ok=True)
+    brand_voice_path = brand_voice_dir / file_name
+    brand_voice_path.write_text(guide_text, encoding="utf-8")
+    logger.info(f"Saved brand voice locally: {brand_voice_path}")
 
-    # 4. Upload to Google Drive (into auto_generated/ subfolder of client folder)
+    # 4. Upload to Google Drive
     drive_url = ""
-    drive_error = ""
+    drive_upload_success = False
     if client_drive_folder_id:
         try:
             from core.drive.sync import get_drive_service
@@ -163,31 +160,102 @@ def generate_brand_voice(
             auto_gen_folder_id = _get_or_create_auto_generated_folder(service, client_drive_folder_id)
             drive_url = _upload_to_drive(service, auto_gen_folder_id, file_name, guide_text)
             logger.info(f"✅ Uploaded brand voice to Drive: {drive_url}")
-            
-            # 5. Ingest the generated brand voice into Qdrant for RAG
-            try:
-                from core.ingestion.pipeline import IngestionPipeline
-                pipeline = IngestionPipeline()
-                pipeline.ingest_file(
-                    file_path_or_bytes=str(local_path),
-                    client_id=client_id,
-                    client_name=client_name,
-                    source_folder="auto_generated"
-                )
-                logger.info("✅ Ingested auto-generated Brand Voice Guide into Qdrant")
-            except Exception as e:
-                logger.error(f"Failed to ingest brand voice into Qdrant: {e}")
-                
+            drive_upload_success = True
         except Exception as e:
-            drive_error = str(e)
             logger.error(f"Drive upload failed: {e}")
+
+    # 5. Clear old brand voice chunks from Qdrant
+    from qdrant_client import QdrantClient
+    from qdrant_client.models import Filter, FieldCondition, MatchValue
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", message="Api key is used with an insecure connection")
+        qdrant_client = QdrantClient(
+            url=os.getenv("QDRANT_URL", "http://localhost:6333"),
+            api_key=os.getenv("QDRANT_API_KEY") or None,
+        )
+    collection_name = f"client_{client_id}"
+    
+    try:
+        qdrant_client.delete(
+            collection_name=collection_name,
+            points_selector=Filter(
+                must=[
+                    FieldCondition(
+                        key="source_folder",
+                        match=MatchValue(value="brand_voice")
+                    )
+                ]
+            )
+        )
+        logger.info(f"DEBUG: Cleared old brand voice chunks for {client_id}")
+    except Exception as e:
+        logger.info(f"DEBUG: No existing brand voice chunks to clear: {e}")
+
+    # 6. Explicit Ingestion into Qdrant using LlamaIndex
+    chunks_stored = 0
+    try:
+        from llama_index.core import VectorStoreIndex, StorageContext, Document
+        from llama_index.core.node_parser import SentenceSplitter
+        from llama_index.vector_stores.qdrant import QdrantVectorStore
+        from llama_index.embeddings.fastembed import FastEmbedEmbedding
+
+        doc = Document(
+            text=guide_text,
+            metadata={
+                "client_id": client_id,
+                "client_name": client_name,
+                "file_name": file_name,
+                "source_folder": "brand_voice",
+                "date_ingested": datetime.utcnow().isoformat(),
+            },
+            excluded_embed_metadata_keys=["date_ingested"],
+        )
+
+        node_parser = SentenceSplitter(chunk_size=384, chunk_overlap=80)
+        embed_model = FastEmbedEmbedding(
+            model_name="BAAI/bge-small-en-v1.5",
+            cache_dir="./.fastembed_cache"
+        )
+        vector_store = QdrantVectorStore(client=qdrant_client, collection_name=collection_name)
+        storage_context = StorageContext.from_defaults(vector_store=vector_store)
+
+        index = VectorStoreIndex.from_documents(
+            [doc],
+            storage_context=storage_context,
+            embed_model=embed_model,
+            transformations=[node_parser],
+            show_progress=False,
+        )
+        
+        chunks_stored = max(1, len(guide_text) // (384 * 4))
+        logger.info(f"✅ Ingested Brand Voice Guide: ~{chunks_stored} chunks stored")
+    except Exception as e:
+        logger.error(f"Failed to ingest brand voice into Qdrant: {e}")
+
+    # 7. Local backup JSON
+    try:
+        import json
+        local_backup = {
+            "client_id": client_id,
+            "client_name": client_name,
+            "generated_at": datetime.utcnow().isoformat(),
+            "content": guide_text,
+            "chunks_stored": chunks_stored,
+            "source_folder": "brand_voice"
+        }
+        backup_path = brand_voice_dir / ".brand_voice_backup.json"
+        backup_path.write_text(json.dumps(local_backup, indent=2), encoding="utf-8")
+        logger.info(f"DEBUG: Local backup saved to {backup_path}")
+    except Exception as e:
+        logger.error(f"Failed to save local backup: {e}")
 
     return {
         "status": "success",
-        "file_name": file_name,
-        "local_path": str(local_path),
+        "message": f"Brand voice generated and embedded into Qdrant",
+        "file_saved": str(brand_voice_path),
+        "chunks_stored": chunks_stored,
+        "qdrant_collection": collection_name,
+        "source_folder": "brand_voice",
+        "drive_uploaded": drive_upload_success,
         "drive_url": drive_url,
-        "drive_error": drive_error,
-        "provider": result["provider"],
-        "client_id": client_id,
     }

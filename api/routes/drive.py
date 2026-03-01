@@ -145,6 +145,7 @@ def _ingest_file_llamaindex(
     source_folder: str,
     qdrant_client: QdrantClient,
 ) -> int:
+    source_folder = source_folder.lower()
     """
     Ingest a single file into Qdrant using LlamaIndex ONLY.
     Returns number of chunks stored.

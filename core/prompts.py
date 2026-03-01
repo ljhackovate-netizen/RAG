@@ -95,55 +95,46 @@ ANSWER using only the context above:"""
 
 # ─── BRAND VOICE EXTRACTION ───────────────────────────────────────────────────
 
-BRAND_VOICE_EXTRACTION_PROMPT = """Analyze the following documents from {client_name} and produce a comprehensive Brand Voice Guide for use in content creation.
-CRITICAL DISTINCTION: These documents may include call transcripts showing how the
-business owner speaks conversationally. Your job is NOT to copy their spoken language.
-Your job is to extract the underlying personality, values, and communication style,
-then translate that into how WRITTEN MARKETING CONTENT should sound for this business.
-Spoken filler words, casual openers, and conversational transitions must never appear
-in the brand voice guide — extract the intent and personality behind them instead.
+BRAND_VOICE_EXTRACTION_PROMPT = """Analyze these documents from {client_name} and write a Brand Voice Guide.
+
+IMPORTANT: Transcripts show how the owner speaks — extract the VALUES and PERSONALITY 
+behind their words. Content written FOR this client should be polished and readable 
+while reflecting their directness, confidence, and authenticity. Do NOT copy literal 
+speech patterns into the voice guide.
+
 DOCUMENTS:
 {documents_text}
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Produce a Brand Voice Guide with these sections:
-1. BUSINESS OVERVIEW
+
+Write the Brand Voice Guide with these 6 sections — be specific, no generic advice:
+
+## 1. BUSINESS OVERVIEW
 What this business does, where they operate, what makes them unique.
-Based only on what is explicitly stated in the documents.
-2. TARGET AUDIENCE
-Who their clients are, what problems this business solves, what the client
-journey looks like. Base this on situations and client types described in documents.
-3. TONE & PERSONALITY FOR WRITTEN CONTENT
-Describe how written marketing content for this business should sound.
-Extract the personality and values behind how the owner communicates —
-their level of confidence, directness, technical depth, warmth, or humor —
-and describe how those qualities should appear in polished written content.
-Do NOT list spoken phrases or transcript quotes here.
-Do list: adjectives that describe the written tone, what to avoid,
-what emotional response content should create in a reader.
-4. UNIQUE VALUE PROPOSITIONS
-What differentiates this business from alternatives.
-Their process, approach, guarantees, or specialties — based on what is
-actually described in the documents, not assumed from industry norms.
-5. KEY FACTS & FIGURES
-Specific numbers, price ranges, timelines, or metrics found in the documents.
-Exact figures only — no approximations or ranges unless the document states a range.
-6. BRAND LANGUAGE
-Terminology, product names, brand names, or technical terms this business actually uses.
-What topics or claims to always address in content.
-What topics or claims to never make in content.
-Base this only on what appears in the documents.
-7. CONTENT GUIDELINES
-What to emphasize in any content written for this business.
-What to avoid or never claim.
-How to frame their process and results based on how they describe it themselves.
-8. SAMPLE SENTENCES FOR WRITTEN CONTENT
-Write 8 example sentences that demonstrate the correct written tone for this client.
-These must be original, polished marketing sentences — not quotes from documents.
-They should reflect the personality and values extracted above.
-They must read like professional content, not spoken conversation.
-Use facts from Section 5 where relevant to make them specific and credible.
-Base every section ONLY on what is in the provided documents.
-Do not assume industry conventions. Do not copy spoken language into written guidelines."""
+Only facts stated in the documents.
+
+## 2. TARGET AUDIENCE  
+Who their clients are, what problems are solved, what the client journey looks like.
+Specific situations mentioned in transcripts.
+
+## 3. TONE & PERSONALITY
+How content FOR this business should sound — NOT how the owner speaks in conversation.
+Derive the personality traits (confident, direct, honest, etc.) from how they talk.
+Words and phrases that reflect their values. What to avoid.
+
+## 4. KEY FACTS & FIGURES
+Every specific number, price range, timeline, or metric in the documents.
+Exact pricing. Exact project costs. Exact timelines. Real service details.
+List all of them — these are the facts the content team needs.
+
+## 5. BRAND LANGUAGE
+Specific product names, brand names, terminology this business uses.
+Words to always use. Words to never use. Phrases that sound authentic.
+
+## 6. SAMPLE CONTENT PHRASES
+10 example sentences for writing content — polished, not transcript quotes.
+These should sound like marketing copy written in this client's voice,
+derived from their personality and values, not copied from transcripts.
+
+Base every section ONLY on the provided documents."""
 
 
 # ─── CONTENT TYPE CONFIG ──────────────────────────────────────────────────────

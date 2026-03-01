@@ -35,6 +35,7 @@ class IngestionPipeline:
         file_name: str = None,
         last_modified: float = None,
     ) -> dict:
+        source_folder = source_folder.lower()
         if isinstance(file_path_or_bytes, str):
             fp = Path(file_path_or_bytes)
             if not fp.exists():

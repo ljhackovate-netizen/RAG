@@ -5,6 +5,7 @@ All retrieval is strictly filtered by client_id payload — never mix clients.
 """
 import os
 import logging
+import warnings
 from qdrant_client import QdrantClient
 from qdrant_client.models import (
     Distance, VectorParams, PayloadSchemaType
@@ -20,11 +21,13 @@ def _sanitize(client_id: str) -> str:
 
 class VectorStoreManager:
     def __init__(self):
-        self.client = QdrantClient(
-            url=os.getenv("QDRANT_URL", "http://localhost:6333"),
-            api_key=os.getenv("QDRANT_API_KEY") or None,
-            timeout=30,
-        )
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", message="Api key is used with an insecure connection")
+            self.client = QdrantClient(
+                url=os.getenv("QDRANT_URL", "http://localhost:6333"),
+                api_key=os.getenv("QDRANT_API_KEY") or None,
+                timeout=30,
+            )
 
     def collection_name(self, client_id: str) -> str:
         return f"client_{_sanitize(client_id)}"

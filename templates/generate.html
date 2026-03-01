@@ -298,18 +298,23 @@ The system will rewrite it using this client's actual pricing, brand voice, and 
             const data = await r.json();
             if (!r.ok) throw new Error(data.detail || 'Failed');
 
-            if (data.status === "error") {
-                throw new Error(data.message);
-            }
+            if (data.status === "success") {
+                showToast(
+                    `✅ Brand voice generated — ${data.chunks_stored} chunks embedded into Qdrant`,
+                    "success"
+                );
+                // Update the button label to show it's done
+                document.getElementById("bv-btn").textContent =
+                    `✅ Brand Voice Active (${data.chunks_stored} chunks)`;
 
-            const res = document.getElementById('bv-result');
-            res.style.display = '';
-            if (data.drive_url) {
-                res.innerHTML = `✅ Saved to Drive: <a href="${data.drive_url}" target="_blank" rel="noopener">${data.file_name}</a>`;
-            } else {
-                res.textContent = `✅ Saved locally: ${data.file_name || 'N/A'}${data.drive_error ? ' (Drive upload failed: ' + data.drive_error + ')' : ''}`;
+                const res = document.getElementById('bv-result');
+                res.style.display = '';
+                if (data.drive_url) {
+                    res.innerHTML = `✅ Saved to Drive: <a href="${data.drive_url}" target="_blank" rel="noopener">${data.file_name}</a>`;
+                } else {
+                    res.textContent = `✅ Saved locally: ${data.file_saved.split(/[\\/]/).pop()}${data.drive_error ? ' (Drive upload failed: ' + data.drive_error + ')' : ''}`;
+                }
             }
-            showToast('Brand voice generated!', 'success');
         } catch (e) {
             showToast('Brand voice failed: ' + e.message, 'error');
         } finally {

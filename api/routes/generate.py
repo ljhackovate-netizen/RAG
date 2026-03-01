@@ -28,7 +28,7 @@ class GenerateRequest(BaseModel):
         populate_by_name = True
 
 
-from qdrant_client.models import Filter, FieldCondition, MatchValue
+from qdrant_client.models import Filter, FieldCondition, MatchValue, MatchAny
 from core.generation.prompts import (
     CONTENT_GEN_SYSTEM, CONTEXTUALIZE_PROMPT, GENERATE_FROM_SCRATCH_PROMPT,
     CONTENT_TYPE_CONFIGS
@@ -65,7 +65,7 @@ def retrieve_context_for_generation(
             must=[
                 FieldCondition(
                     key="source_folder",
-                    match=MatchValue(value="brand_voice")
+                    match=MatchAny(any=["brand_voice", "auto_generated"])
                 )
             ]
         ),
@@ -81,7 +81,7 @@ def retrieve_context_for_generation(
             must_not=[
                 FieldCondition(
                     key="source_folder",
-                    match=MatchValue(value="brand_voice")
+                    match=MatchAny(any=["brand_voice", "auto_generated"])
                 ),
                 FieldCondition(
                     key="source_folder",
@@ -89,7 +89,7 @@ def retrieve_context_for_generation(
                 ),
             ]
         ),
-        limit=8,
+        limit=6,
         with_payload=True,
     ).points
 
@@ -119,11 +119,11 @@ def retrieve_context_for_generation(
             must_not=[
                 FieldCondition(
                     key="source_folder",
-                    match=MatchValue(value="brand_voice")
+                    match=MatchAny(any=["brand_voice", "auto_generated"])
                 )
             ]
         ),
-        limit=4,
+        limit=3,
         with_payload=True,
     ).points
 
@@ -133,6 +133,10 @@ def retrieve_context_for_generation(
         for r in brand_voice_results
         if r.payload
     ]
+    print(f"DEBUG: Found {len(brand_voice_chunks)} brand voice chunks for {client_id}")
+    for i, c in enumerate(brand_voice_chunks):
+        print(f"  - BV Chunk {i+1}: {c[:100]}...")
+
     brand_voice_context = "\n---\n".join(brand_voice_chunks) if brand_voice_chunks else (
         "No brand voice document found. Match a professional, clear, and specific tone."
     )
@@ -153,6 +157,7 @@ def retrieve_context_for_generation(
     factual_context = "\n---\n".join(merged_factual) if merged_factual else (
         "No factual context found for this client."
     )
+    print(f"DEBUG: Total factual chunks merged: {len(merged_factual)}")
 
     return {
         "brand_voice_context": brand_voice_context,
@@ -189,14 +194,19 @@ async def generate_content(request: Request, body: GenerateRequest):
             query_text=body.generic_content,
             client_id=body.client_id,
         )
+        print(f"DEBUG: Brand Voice chunks used -> {retrieval['brand_voice_context'][:500]}...")
         brand_voice_context = retrieval["brand_voice_context"]
         factual_context     = retrieval["factual_context"]
 
-        # Build content type config
+        # Get content type config
         content_cfg = CONTENT_TYPE_CONFIGS.get(
-            body.content_type, 
-            {"label": body.content_type, "length": "400-800 words"}
+            body.content_type,
+            {"label": body.content_type, "length": "400-800 words", "special_instructions": ""}
         )
+
+        special_instructions = content_cfg.get("special_instructions", "")
+        if special_instructions:
+            special_instructions = f"Additional rules for this content type:\n{special_instructions}\n"
 
         # Build prompt based on mode
         if body.mode == "scratch":
@@ -205,17 +215,18 @@ async def generate_content(request: Request, body: GenerateRequest):
                 brand_voice_context=brand_voice_context,
                 factual_context=factual_context,
                 content_type=content_cfg["label"],
-                topic=body.topic or "general",
+                topic=body.topic or "general overview",
                 target_length=content_cfg["length"],
+                special_instructions=special_instructions,
             )
         else:
-            # Default: contextualize mode
             user_prompt = CONTEXTUALIZE_PROMPT.format(
                 client_name=body.client_name,
                 brand_voice_context=brand_voice_context,
                 factual_context=factual_context,
                 content_type=content_cfg["label"],
                 input_content=body.generic_content,
+                special_instructions=special_instructions,
             )
 
         # Call LLM via your existing llm_router (Groq primary, Gemini fallback)

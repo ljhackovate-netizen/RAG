@@ -38,8 +38,8 @@ OPENROUTER_MIN_INTERVAL = 1.0  # seconds between OpenRouter calls
 GEMINI_MIN_INTERVAL = 0.6      # seconds between Gemini calls
 
 # Chunk size for long document summarization
-LONG_DOC_CHUNK_CHARS = 15000
-LONG_DOC_THRESHOLD_CHARS = 20000
+LONG_DOC_CHUNK_CHARS = 10000
+LONG_DOC_THRESHOLD_CHARS = 12000
 
 
 def _get_next_provider() -> str:
@@ -137,7 +137,7 @@ class LLMRouter:
 
         self._groq_client = Groq(api_key=self._groq_key)
         genai.configure(api_key=self._gemini_key)
-        self._gemini_model = genai.GenerativeModel("gemini-1.5-flash")
+        self._gemini_model = genai.GenerativeModel("gemini-2.5-flash")
 
     def complete(
         self,
