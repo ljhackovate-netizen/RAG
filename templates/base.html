@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}CGN Client Brain{% endblock %}</title>
+  <meta name="description"
+    content="{% block meta_description %}CGN Client Brain — AI-powered RAG content generation for Contractor Growth Network clients{% endblock %}">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/css/main.css">
+</head>
+
+<body>
+  <header class="site-header">
+    <div class="header-inner">
+      <a href="/" class="brand">
+        <span class="brand-icon">🧠</span>
+        <div>
+          <span class="brand-name">Client Brain</span>
+          <span class="brand-sub">by Contractor Growth Network</span>
+        </div>
+      </a>
+      <nav>
+        <a href="/" class="nav-link {% if request.url.path == '/' %}active{% endif %}">Dashboard</a>
+        <a href="/generate/" class="nav-link {% if '/generate' in request.url.path %}active{% endif %}">Generate</a>
+        <a href="/drive/" class="nav-link {% if '/drive' in request.url.path %}active{% endif %}">📁 Drive Sync</a>
+      </nav>
+    </div>
+  </header>
+  <main class="main">{% block content %}{% endblock %}</main>
+  <div id="toast" class="toast hidden"></div>
+  <script src="/static/js/app.js"></script>
+  {% block scripts %}{% endblock %}
+</body>
+
+</html>

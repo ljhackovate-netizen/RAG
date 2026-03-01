@@ -1,0 +1,285 @@
+{% extends "base.html" %}
+{% block title %}Drive Sync{% endblock %}
+{% block content %}
+<div class="drive-layout">
+
+    <!-- SIDEBAR -->
+    <div class="drive-sidebar">
+        <div class="sidebar-header">
+            <span style="font-weight:600">📁 Google Drive</span>
+            <button class="btn btn-sm" id="connect-btn" style="background:var(--orange);color:white;border:none"
+                onclick="connectDrive()">Connect</button>
+        </div>
+
+        <div id="connection-status" class="status-badge">Not connected</div>
+
+        <input type="text" id="folder-search" class="folder-search" placeholder="🔍 Search folders..."
+            oninput="filterFolders(this.value)">
+
+        <div id="folder-tree" class="folder-tree">
+            <div class="no-folders">Connect to Google Drive to browse folders</div>
+        </div>
+    </div>
+
+    <!-- MAIN PANEL -->
+    <div class="drive-main">
+
+        <!-- Selected folder info -->
+        <div class="card" style="margin-bottom:1rem">
+            <h3 id="selected-folder-name" style="color:var(--navy);margin-bottom:.75rem">
+                No folder selected
+            </h3>
+            <div id="folder-contents" style="color:var(--muted);font-size:.875rem">
+                Select a folder from the sidebar to begin
+            </div>
+        </div>
+
+        <!-- Client setup -->
+        <div class="card" style="margin-bottom:1rem">
+            <div class="card-title">Client Setup</div>
+            <div class="two-col" style="gap:1rem">
+                <div class="field">
+                    <label class="label">Client ID <span class="req">*</span></label>
+                    <input id="client-id" class="input" placeholder="e.g. fry_remodeling">
+                    <small class="hint">Lowercase, underscores only</small>
+                </div>
+                <div class="field">
+                    <label class="label">Client Name <span class="req">*</span></label>
+                    <input id="client-name" class="input" placeholder="e.g. Fry Remodeling">
+                </div>
+            </div>
+            <button id="sync-btn" class="btn btn-primary btn-full" onclick="syncAndIngest()" disabled>
+                🔄 Sync from Drive &amp; Ingest with LlamaIndex
+            </button>
+        </div>
+
+        <!-- Progress panel -->
+        <div id="progress-panel" class="card" style="display:none">
+            <div class="progress-header">
+                <span id="progress-step" style="font-weight:600">Starting...</span>
+                <span id="progress-count" style="color:var(--muted);font-size:.85rem"></span>
+            </div>
+            <div class="progress-bar-wrap" style="margin:.75rem 0">
+                <div id="progress-bar" class="progress-bar" style="width:0%"></div>
+            </div>
+            <div id="progress-log" class="progress-log"></div>
+            <div id="progress-complete" class="complete-banner" style="display:none">
+                ✅ Ingestion Complete!
+                <div id="complete-stats" style="font-size:.875rem;font-weight:400;margin-top:.35rem"></div>
+                <a href="/generate/" class="btn btn-primary btn-sm" style="margin-top:.75rem;display:inline-flex">
+                    ⚡ Go Generate Content →
+                </a>
+            </div>
+        </div>
+
+    </div>
+</div>
+
+{% block scripts %}
+<script>
+    let selectedFolderId = null;
+    let allFolders = [];
+
+    async function connectDrive() {
+        const btn = document.getElementById('connect-btn');
+        btn.textContent = 'Connecting...';
+        btn.disabled = true;
+
+        const r = await fetch('/drive/connect');
+        const data = await r.json();
+        const statusEl = document.getElementById('connection-status');
+
+        if (data.connected) {
+            statusEl.textContent = '✅ ' + data.email;
+            statusEl.className = 'status-badge connected';
+            btn.textContent = '✅ Connected';
+            loadFolders();
+        } else {
+            statusEl.textContent = '❌ ' + data.error;
+            statusEl.className = 'status-badge error';
+            btn.textContent = 'Retry';
+            btn.disabled = false;
+        }
+    }
+
+    async function loadFolders() {
+        document.getElementById('folder-tree').innerHTML =
+            '<div class="loading-folders">⏳ Loading folders...</div>';
+        const r = await fetch('/drive/folders');
+        const data = await r.json();
+        allFolders = data.folders || [];
+        renderFolders(allFolders);
+    }
+
+    function renderFolders(folders) {
+        const tree = document.getElementById('folder-tree');
+        if (!folders.length) {
+            tree.innerHTML = `<div class="no-folders">
+      No folders found.<br><br>
+      Share a Google Drive folder with:<br>
+      <strong style="word-break:break-all;font-size:.75rem">${'(connect first to see email)'}</strong>
+    </div>`;
+            return;
+        }
+        tree.innerHTML = folders.map(f => `
+    <div class="folder-item ${f.id === selectedFolderId ? 'selected' : ''}"
+         onclick="selectFolder('${f.id}', '${f.name.replace(/'/g, "\\'")}')">
+      <span style="font-size:1.1rem">📁</span>
+      <div class="folder-info">
+        <span class="folder-name">${f.name}</span>
+        <span class="folder-path">${f.path || ''}</span>
+      </div>
+    </div>
+  `).join('');
+    }
+
+    function filterFolders(q) {
+        const filtered = allFolders.filter(f =>
+            f.name.toLowerCase().includes(q.toLowerCase()) ||
+            (f.path || '').toLowerCase().includes(q.toLowerCase())
+        );
+        renderFolders(filtered);
+    }
+
+    async function selectFolder(folderId, folderName) {
+        selectedFolderId = folderId;
+        document.querySelectorAll('.folder-item').forEach(el => el.classList.remove('selected'));
+        event.currentTarget.classList.add('selected');
+        document.getElementById('selected-folder-name').textContent = '📁 ' + folderName;
+        document.getElementById('folder-contents').innerHTML =
+            '<span style="color:var(--muted);font-size:.85rem">⏳ Loading contents...</span>';
+
+        // Auto-fill client fields
+        const clientId = folderName.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
+        document.getElementById('client-id').value = clientId;
+        document.getElementById('client-name').value = folderName;
+        document.getElementById('sync-btn').disabled = false;
+
+        // Load folder contents
+        const r = await fetch(`/drive/folders/${folderId}/contents`);
+        const data = await r.json();
+        document.getElementById('folder-contents').innerHTML = `
+    <div class="contents-grid">
+      ${(data.subfolders || []).map(sf => `<div class="subfolder-chip">📂 ${sf.name}</div>`).join('')}
+    </div>
+    <div class="file-count" style="margin-top:.5rem;color:var(--muted);font-size:.85rem">
+      📄 ${data.total_files} files ready to sync and ingest
+    </div>
+  `;
+    }
+
+    async function syncAndIngest() {
+        const clientId = document.getElementById('client-id').value.trim();
+        const clientName = document.getElementById('client-name').value.trim();
+        if (!clientId || !clientName) { showToast('Enter client ID and name', 'error'); return; }
+        if (!selectedFolderId) { showToast('Select a folder first', 'error'); return; }
+
+        // Show progress
+        document.getElementById('progress-panel').style.display = 'block';
+        document.getElementById('progress-complete').style.display = 'none';
+        document.getElementById('progress-log').innerHTML = '';
+        document.getElementById('progress-bar').style.width = '0%';
+        document.getElementById('sync-btn').disabled = true;
+        document.getElementById('sync-btn').textContent = '⏳ Working...';
+        document.getElementById('progress-panel').scrollIntoView({ behavior: 'smooth' });
+
+        const params = new URLSearchParams({
+            folder_id: selectedFolderId,
+            client_id: clientId,
+            client_name: clientName
+        });
+
+        const evtSource = new EventSource(`/drive/sync-and-ingest-stream?${params}`);
+
+        evtSource.onmessage = (event) => {
+            const data = JSON.parse(event.data);
+            const log = document.getElementById('progress-log');
+
+            // Update step label
+            const stepLabels = {
+                downloading: '⬇️ Downloading from Google Drive...',
+                ingesting: '🧠 Ingesting via LlamaIndex → Qdrant...',
+                brand_voice: '✨ Generating Brand Voice...',
+                brand_voice_complete: '✅ Brand Voice Generated & Ingested',
+                brand_voice_error: '❌ Brand Voice Error',
+                brand_voice_skip: '⏭️ Brand Voice Skipped',
+                complete: '✅ Complete!',
+                error: '❌ Error'
+            };
+            document.getElementById('progress-step').textContent =
+                stepLabels[data.step] || data.step;
+
+            // Progress bar
+            if (data.progress && data.total) {
+                const pct = Math.round((data.progress / data.total) * 100);
+                document.getElementById('progress-bar').style.width = pct + '%';
+                document.getElementById('progress-count').textContent =
+                    `${data.progress} / ${data.total}`;
+            }
+
+            // Log entry
+            if (data.file || data.step.startsWith('brand_voice')) {
+                const entry = document.createElement('div');
+                entry.className = 'log-entry';
+                let icon = 'ℹ️';
+                if (data.step === 'downloading') icon = '⬇️';
+                else if (data.step === 'ingesting') icon = '🧠';
+                else if (data.step === 'brand_voice_complete' || data.error === false) icon = '✅';
+                else if (data.step === 'brand_voice_error' || data.error) icon = '❌';
+                else if (data.step === 'brand_voice_skip') icon = '⏭️';
+                else if (data.step === 'brand_voice') icon = '✨';
+
+                const extra = data.chunks ? ` (${data.chunks} chunks)` : '';
+                const msg = data.file || data.message || '';
+                entry.textContent = `${icon} [${data.step}] ${msg}${extra}`;
+                log.appendChild(entry);
+                log.scrollTop = log.scrollHeight;
+            }
+
+            // Complete
+            if (data.step === 'complete') {
+                document.getElementById('progress-complete').style.display = 'block';
+                document.getElementById('complete-stats').textContent =
+                    `${data.files_processed} files processed · ${data.chunks_stored} chunks stored in Qdrant via LlamaIndex`;
+                document.getElementById('sync-btn').disabled = false;
+                document.getElementById('sync-btn').textContent = '🔄 Sync from Drive & Ingest with LlamaIndex';
+                // We don't close evtSource here anymore because brand_voice comes after 'complete'
+            }
+
+            // Final completion after brand voice
+            if (data.step === 'brand_voice_complete' || data.step === 'brand_voice_error' || data.step === 'brand_voice_skip') {
+                evtSource.close();
+                document.getElementById('progress-bar').style.width = '100%';
+                if (typeof showToast === 'function') {
+                    showToast('Sync & Ingestion Fully Complete!', 'success');
+                } else {
+                    alert('Sync & Ingestion Fully Complete!');
+                }
+            }
+
+            // Error
+            if (data.step === 'error') {
+                evtSource.close();
+                if (typeof showToast === 'function') {
+                    showToast('Error: ' + data.message, 'error');
+                } else {
+                    alert('Error: ' + data.message);
+                }
+                document.getElementById('sync-btn').disabled = false;
+                document.getElementById('sync-btn').textContent = '🔄 Sync from Drive & Ingest with LlamaIndex';
+            }
+        };
+
+        evtSource.onerror = () => {
+            evtSource.close();
+            if (typeof showToast === 'function') {
+                showToast('Stream connection lost', 'error');
+            } else {
+                alert('Stream connection lost');
+            }
+            document.getElementById('sync-btn').disabled = false;
+        };
+    }
+</script>
+{% endblock %}
+{% endblock %}

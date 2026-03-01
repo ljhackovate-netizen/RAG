@@ -1,0 +1,337 @@
+{% extends "base.html" %}
+{% block title %}Generate Content{% endblock %}
+{% block content %}
+<div class="page-header">
+    <h1>⚡ Generate Content</h1>
+    <p>Transform generic content into client-specific copy — powered by Client Brain knowledge base</p>
+</div>
+
+<div class="two-col">
+    <!-- INPUT PANEL -->
+    <div class="card">
+        <div class="card-title">Settings</div>
+
+        <!-- Mode Toggle -->
+        <div class="field">
+            <label class="label">Mode</label>
+            <div class="mode-toggle">
+                <button class="mode-btn active" id="btn-contextualize" onclick="setMode('contextualize')">
+                    ✏️ Contextualize My Content
+                </button>
+                <button class="mode-btn" id="btn-scratch" onclick="setMode('scratch')">
+                    ✨ Generate From Scratch
+                </button>
+            </div>
+        </div>
+
+        <!-- Client -->
+        <div class="field">
+            <label class="label">Client <span class="req">*</span></label>
+            <select id="client-id" class="input" onchange="onClientChange()">
+                <option value="">— Select a client —</option>
+                {% for c in clients %}
+                <option value="{{ c }}">{{ c.replace('_',' ').title() }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <input type="hidden" id="client-name">
+
+        <!-- Content Type -->
+        <div class="field">
+            <label class="label">Content Type <span class="req">*</span></label>
+            <select id="content-type" class="input">
+                {% for key, meta in content_types.items() %}
+                <option value="{{ key }}">{{ meta.label }} — {{ meta.length }}</option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <!-- Mode 1: Contextualize -->
+        <div id="panel-contextualize">
+            <div class="field">
+                <label class="label">
+                    Generic Content to Transform
+                    <span class="tip"
+                        title="Paste generic copy here — the RAG rewrites it using this client's real facts, pricing, and voice from their knowledge base.">ℹ️</span>
+                </label>
+                <textarea id="input-content" class="input" rows="10" placeholder="Paste generic blog post, service page, or website copy here.
+The system will rewrite it using this client's actual pricing, brand voice, and service details."></textarea>
+            </div>
+        </div>
+
+        <!-- Mode 2: Scratch -->
+        <div id="panel-scratch" style="display:none">
+            <div class="field">
+                <label class="label">Topic / Focus <span style="opacity:.6">(optional)</span></label>
+                <input id="topic" class="input" type="text"
+                    placeholder="e.g. summer maintenance tips, premium service packages, company story...">
+            </div>
+        </div>
+
+        <!-- Drive Sync -->
+        <details class="drive-section" id="drive-details">
+            <summary>📂 Browse &amp; Sync Google Drive</summary>
+            <div class="field" style="margin-top:.75rem">
+                <p style="font-size:.8rem;color:var(--muted);margin-bottom:.5rem">
+                    Select a client folder from your master Drive directory. It will be synced and ingested
+                    automatically.
+                </p>
+                <button class="btn btn-outline btn-sm" id="btn-browse-drive" onclick="loadDriveFolders()">
+                    🔍 Load Folders
+                </button>
+                <div id="drive-folders-list"
+                    style="display:none; margin-top:.75rem; max-height: 250px; overflow-y: auto; border: 1px solid var(--border); border-radius: var(--radius); background: white;">
+                </div>
+                <div id="sync-status" style="font-size:.8rem;margin-top:.5rem;color:var(--navy);"></div>
+            </div>
+        </details>
+
+        <button class="btn btn-primary btn-full" id="gen-btn" onclick="generate()">
+            ⚡ Generate Content
+        </button>
+
+        {% if qa_enabled %}
+        <hr class="divider">
+        <div class="card-title">💬 Ask Knowledge Base (Q&amp;A)</div>
+        <div class="field">
+            <textarea id="qa-q" class="input" rows="2"
+                placeholder="Ask a factual question about this client..."></textarea>
+        </div>
+        <button class="btn btn-outline btn-sm btn-full" onclick="askQA()">🔍 Ask</button>
+        <div id="qa-answer" class="answer-box" style="display:none"></div>
+        {% endif %}
+    </div>
+
+    <!-- OUTPUT PANEL -->
+    <div class="card">
+        <div class="card-title">📄 Output</div>
+        <div id="output-empty" class="empty-state">
+            <div style="font-size:3rem">✍️</div>
+            <p>Generated content appears here</p>
+            <p style="font-size:.8rem;margin-top:.5rem;opacity:.7">Select a client and click Generate</p>
+        </div>
+        <div id="output-loading" class="loading" style="display:none">
+            <div class="spinner"></div> Generating via Groq ↔ Gemini rotation...
+        </div>
+        <div id="output-result" style="display:none">
+            <div class="output-meta">
+                <span id="meta-provider" class="badge"></span>
+                <span id="meta-chunks" style="font-size:.75rem;opacity:.7"></span>
+                <div>
+                    <button class="btn btn-outline btn-sm" onclick="copyOutput()">📋 Copy</button>
+                    <button class="btn btn-outline btn-sm" onclick="downloadOutput()">⬇️ Download</button>
+                </div>
+            </div>
+            <div id="output-text" class="output-content"></div>
+        </div>
+
+        <!-- Brand Voice Generator -->
+        <hr class="divider">
+        <div class="card-title">🎯 Generate Brand Voice Doc</div>
+        <p style="font-size:.8rem;opacity:.7;margin-bottom:.75rem">
+            Analyzes all ingested documents → generates Brand Voice Guide →
+            saves locally AND uploads to Drive <code>auto_generated/</code> folder
+        </p>
+        <button class="btn btn-outline btn-sm btn-full" id="bv-btn" onclick="generateBrandVoice()">
+            🎯 Generate &amp; Upload to Drive
+        </button>
+        <div id="bv-result" style="display:none;font-size:.8rem;margin-top:.5rem"></div>
+    </div>
+</div>
+
+{% block scripts %}
+<script>
+    let mode = 'contextualize';
+
+    // Pre-select client from URL param if present
+    (function () {
+        const params = new URLSearchParams(window.location.search);
+        const c = params.get('client');
+        if (c) {
+            const sel = document.getElementById('client-id');
+            sel.value = c;
+            onClientChange();
+        }
+    })();
+
+    function setMode(m) {
+        mode = m;
+        document.getElementById('panel-contextualize').style.display = m === 'contextualize' ? '' : 'none';
+        document.getElementById('panel-scratch').style.display = m === 'scratch' ? '' : 'none';
+        document.getElementById('btn-contextualize').classList.toggle('active', m === 'contextualize');
+        document.getElementById('btn-scratch').classList.toggle('active', m === 'scratch');
+    }
+
+    function onClientChange() {
+        const sel = document.getElementById('client-id');
+        document.getElementById('client-name').value =
+            sel.value.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+    }
+
+    async function generate() {
+        const clientId = document.getElementById('client-id').value;
+        const clientName = document.getElementById('client-name').value;
+        const contentType = document.getElementById('content-type').value;
+        if (!clientId) { showToast('Select a client', 'error'); return; }
+
+        let inputContent;
+        if (mode === 'scratch') {
+            const topic = document.getElementById('topic').value.trim();
+            const ctLabel = document.getElementById('content-type').selectedOptions[0].text.split('—')[0].trim();
+            inputContent = topic ? `${ctLabel}: ${topic}` : ctLabel;
+        } else {
+            inputContent = document.getElementById('input-content').value.trim();
+            if (!inputContent) { showToast('Paste content to contextualize', 'error'); return; }
+        }
+
+        document.getElementById('output-empty').style.display = 'none';
+        document.getElementById('output-loading').style.display = 'flex';
+        document.getElementById('output-result').style.display = 'none';
+        document.getElementById('gen-btn').disabled = true;
+
+        try {
+            const r = await fetch('/generate/content', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    client_id: clientId, client_name: clientName,
+                    input_content: inputContent, content_type: contentType, mode
+                })
+            });
+            const data = await r.json();
+            if (!r.ok) throw new Error(data.detail || 'Generation failed');
+
+            document.getElementById('output-loading').style.display = 'none';
+            document.getElementById('output-result').style.display = '';
+            document.getElementById('output-text').textContent = data.content;
+            document.getElementById('meta-provider').textContent = '🤖 ' + data.provider;
+            document.getElementById('meta-chunks').textContent =
+                `${data.brand_voice_chunks_used} brand voice + ${data.factual_chunks_used} factual chunks used`;
+            showToast('Generated!', 'success');
+        } catch (e) {
+            document.getElementById('output-loading').style.display = 'none';
+            document.getElementById('output-empty').style.display = '';
+            showToast(e.message, 'error');
+        } finally {
+            document.getElementById('gen-btn').disabled = false;
+        }
+    }
+
+    async function loadDriveFolders() {
+        const btn = document.getElementById('btn-browse-drive');
+        const list = document.getElementById('drive-folders-list');
+        btn.textContent = '⏳ Loading...';
+        btn.disabled = true;
+
+        try {
+            const r = await fetch('/drive/folders');
+            if (!r.ok) {
+                const text = await r.text();
+                throw new Error(text || 'Failed to fetch folders');
+            }
+            const folders = await r.json();
+
+            if (folders.length === 0) {
+                list.innerHTML = '<div style="padding:1rem;color:var(--muted);text-align:center;">No folders found in master directory. Please ensure CGN_MASTER_DRIVE_FOLDER_ID is set correctly in .env</div>';
+            } else {
+                list.innerHTML = '';
+                folders.forEach(f => {
+                    const el = document.createElement('div');
+                    el.style.cssText = 'padding: .6rem 1rem; border-bottom: 1px solid var(--border);';
+                    el.innerHTML = `
+                        <div style="display:flex; align-items:center; gap:.75rem;">
+                            <div style="font-size:1.2rem">📁</div>
+                            <div style="flex:1">
+                                <div style="font-weight:600; color:var(--text);">${f.name}</div>
+                                <div style="font-size:.7rem; color:var(--muted); font-family:monospace;">${f.id}</div>
+                            </div>
+                            <button class="btn btn-outline btn-sm" onclick="syncAutoFolder('${f.id}', '${f.name.replace(/'/g, "\\'")}')">Sync Client</button>
+                        </div>
+                    `;
+                    list.appendChild(el);
+                });
+            }
+            list.style.display = 'block';
+        } catch (e) {
+            showToast('Could not load Drive folders: ' + e.message, 'error');
+            document.getElementById('sync-status').textContent = '❌ Failed to load Drive folders';
+        } finally {
+            btn.textContent = '🔍 Refresh Folders';
+            btn.disabled = false;
+        }
+    }
+
+    async function syncAutoFolder(folderId, folderName) {
+        document.getElementById('sync-status').textContent = `⏳ Initiating sync for "${folderName}"...`;
+        try {
+            const r = await fetch('/drive/sync/auto', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ drive_folder_id: folderId, folder_name: folderName })
+            });
+            if (!r.ok) {
+                const d = await r.json();
+                throw new Error(d.detail || 'Sync failed');
+            }
+            const d = await r.json();
+            document.getElementById('sync-status').textContent = `✅ Sync started for client: ${d.client_id} (running in background). Wait 30 seconds and refresh page to select client.`;
+            showToast('Drive sync started!', 'success');
+        } catch (e) {
+            document.getElementById('sync-status').textContent = '❌ ' + e.message;
+            showToast('Sync failed: ' + e.message, 'error');
+        }
+    }
+
+    async function generateBrandVoice() {
+        const clientId = document.getElementById('client-id').value;
+        const clientName = document.getElementById('client-name').value;
+        if (!clientId) { showToast('Select a client first', 'error'); return; }
+        const btn = document.getElementById('bv-btn');
+        btn.disabled = true;
+        btn.textContent = '⏳ Generating...';
+        try {
+            // Note: drive_folder_id is no longer needed in URL — backend fetches it from .sync_status.json
+            const r = await fetch(
+                `/drive/generate-brand-voice/${clientId}?client_name=${encodeURIComponent(clientName)}`,
+                { method: 'POST' }
+            );
+            const data = await r.json();
+            if (!r.ok) throw new Error(data.detail || 'Failed');
+
+            if (data.status === "error") {
+                throw new Error(data.message);
+            }
+
+            const res = document.getElementById('bv-result');
+            res.style.display = '';
+            if (data.drive_url) {
+                res.innerHTML = `✅ Saved to Drive: <a href="${data.drive_url}" target="_blank" rel="noopener">${data.file_name}</a>`;
+            } else {
+                res.textContent = `✅ Saved locally: ${data.file_name || 'N/A'}${data.drive_error ? ' (Drive upload failed: ' + data.drive_error + ')' : ''}`;
+            }
+            showToast('Brand voice generated!', 'success');
+        } catch (e) {
+            showToast('Brand voice failed: ' + e.message, 'error');
+        } finally {
+            btn.disabled = false;
+            btn.textContent = '🎯 Generate & Upload to Drive';
+        }
+    }
+
+    function copyOutput() {
+        navigator.clipboard.writeText(document.getElementById('output-text').textContent);
+        showToast('Copied to clipboard!', 'success');
+    }
+
+    function downloadOutput() {
+        const clientId = document.getElementById('client-id').value || 'output';
+        const ctLabel = document.getElementById('content-type').selectedOptions[0].text.split('—')[0].trim().replace(/\s+/g, '_').toLowerCase();
+        const text = document.getElementById('output-text').textContent;
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(new Blob([text], { type: 'text/plain' }));
+        a.download = `${clientId}_${ctLabel}.txt`;
+        a.click();
+    }
+</script>
+{% endblock %}
+{% endblock %}

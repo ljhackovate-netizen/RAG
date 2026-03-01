@@ -1,0 +1,38 @@
+# Web framework
+fastapi==0.115.0
+uvicorn[standard]==0.30.6
+python-multipart==0.0.9
+jinja2==3.1.4
+aiofiles==23.2.1
+
+# LlamaIndex — compatible set
+llama-index-core==0.13.0
+llama-index-vector-stores-qdrant==0.9.1
+llama-index-embeddings-fastembed==0.3.0
+
+# FastEmbed — NO torch
+fastembed==0.4.2
+
+# Qdrant — bumped to match vector store requirement
+qdrant-client==1.16.0
+
+# LLM clients
+groq==0.12.0
+google-generativeai==0.8.3
+
+# Document parsing
+pypdf==4.3.1
+python-docx==1.1.2
+openpyxl==3.1.5
+pandas==2.2.3
+
+# Google Drive
+google-api-python-client==2.150.0
+google-auth==2.35.0
+google-auth-httplib2==0.2.0
+
+# Utilities
+python-dotenv==1.0.1
+tenacity==9.0.0
+httpx==0.27.2
+pydantic==2.9.2

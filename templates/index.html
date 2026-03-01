@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+{% block title %}Dashboard — CGN Client Brain{% endblock %}
+{% block content %}
+<div class="page-header">
+    <h1>🧠 Client Brain Dashboard</h1>
+    <p>RAG-powered content generation system for CGN clients — select a client to generate or ingest</p>
+</div>
+
+{% if clients %}
+<div class="stats-grid">
+    <div class="stat-card">
+        <div class="stat-num">{{ clients | length }}</div>
+        <div class="stat-lbl">Active Clients</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-num">{{ clients | sum(attribute='stats.chunks') }}</div>
+        <div class="stat-lbl">Total Chunks Indexed</div>
+    </div>
+</div>
+
+<div class="section-title">Active Clients</div>
+<div class="client-grid">
+    {% for c in clients %}
+    <div class="client-card">
+        <div class="client-header">
+            <div class="client-avatar">{{ c.id[0].upper() }}</div>
+            <div>
+                <div class="client-name">{{ c.id.replace('_', ' ').title() }}</div>
+                <div class="client-id">{{ c.id }}</div>
+            </div>
+        </div>
+        <div class="client-stats">
+            <div class="client-stat">
+                <span class="cstat-num">{{ c.stats.chunks }}</span>
+                <span class="cstat-lbl">chunks</span>
+            </div>
+            <div class="client-stat">
+                <span class="cstat-num status-{{ c.stats.status }}">{{ c.stats.status }}</span>
+            </div>
+        </div>
+        <div class="client-actions">
+            <a href="/generate/?client={{ c.id }}" class="btn btn-primary btn-sm">⚡ Generate</a>
+            <button class="btn btn-danger btn-sm" onclick="deleteClient('{{ c.id }}')">🗑️ Clear</button>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+{% else %}
+<div class="empty-hero">
+    <div class="empty-icon">📂</div>
+    <h2>No Clients Yet</h2>
+    <p>Start by syncing a Google Drive folder or uploading documents manually.</p>
+    <div style="display:flex;gap:1rem;justify-content:center;margin-top:1.5rem">
+        <a href="/generate/" class="btn btn-primary">⚡ Go to Generate</a>
+        <a href="/ingest/" class="btn btn-outline">📤 Upload Documents</a>
+    </div>
+</div>
+{% endif %}
+
+<div class="quick-start">
+    <div class="qs-title">⚡ Quick Start</div>
+    <ol class="qs-list">
+        <li>Set <code>GROQ_API_KEY</code> and <code>GEMINI_API_KEY</code> in your <code>.env</code> file</li>
+        <li>Start Qdrant: <code>docker-compose up qdrant -d</code></li>
+        <li>Go to <strong>Generate</strong> → paste a Google Drive folder ID → click <strong>Sync &amp; Ingest</strong>
+        </li>
+        <li>Once ingestion completes, select the client → choose content type → click <strong>Generate Content</strong>
+        </li>
+        <li>Click <strong>Generate Brand Voice Doc</strong> to create a brand guide and upload it back to Drive</li>
+    </ol>
+</div>
+
+{% block scripts %}
+<script>
+    async function deleteClient(clientId) {
+        if (!confirm(`Clear all data for client "${clientId}"? This cannot be undone.`)) return;
+        const r = await fetch(`/ingest/client/${clientId}`, { method: 'DELETE' });
+        if (r.ok) {
+            showToast('Client cleared. Refreshing...', 'success');
+            setTimeout(() => location.reload(), 1200);
+        } else {
+            showToast('Failed to clear client', 'error');
+        }
+    }
+</script>
+{% endblock %}
+{% endblock %}

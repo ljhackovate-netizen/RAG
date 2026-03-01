@@ -1,0 +1,316 @@
+{% extends "base.html" %}
+{% block title %}Drive Sync — CGN Client Brain{% endblock %}
+{% block content %}
+<div class="page-header">
+    <h1>📂 Google Drive Sync</h1>
+    <p>Browse team folders and ingest files with real-time progress</p>
+</div>
+
+<div class="card" style="margin-bottom: 1rem;">
+    <button id="btn-connect" class="btn btn-outline" onclick="connectDrive()">🔌 Connect to Google Drive</button>
+    <span id="connect-status" style="margin-left: 1rem; font-size: 0.9rem;"></span>
+</div>
+
+<div class="two-col" style="align-items: flex-start;">
+    <!-- LEFT SIDEBAR: FOLDER BROWSER -->
+    <div class="card" style="height: 600px; overflow-y: auto; padding: 1rem;">
+        <div class="card-title">Drive Folders</div>
+        <div id="sidebar-loading" style="display:none; text-align:center; padding: 1rem;">
+            <div class="spinner" style="margin: 0 auto;"></div>
+        </div>
+        <div id="folder-list" style="display: flex; flex-direction: column; gap: 0.5rem; margin-top: 1rem;">
+            <div style="color: var(--muted); font-size: 0.85rem;">Click 'Connect' to load accessible folders...</div>
+        </div>
+    </div>
+
+    <!-- RIGHT MAIN PANEL: SYNC & PROGRESS -->
+    <div class="card" style="min-height: 600px; display: flex; flex-direction: column;">
+        <div class="card-title" id="selected-folder-title">Select a folder</div>
+
+        <div id="folder-contents" style="display: none; flex: 1;">
+            <div
+                style="background: var(--bg); padding: 1rem; border-radius: var(--radius); font-size: 0.85rem; margin-bottom: 1.5rem;">
+                <h4 style="margin: 0 0 0.5rem 0;">Contents Preview</h4>
+                <div id="contents-list" style="color: var(--muted); height: 100px; overflow-y: auto;"></div>
+            </div>
+
+            <div class="field">
+                <label class="label">Client ID <span class="req">*</span></label>
+                <input id="ingest-client-id" class="input" type="text" placeholder="e.g. fry_remodeling">
+                <small class="hint">Auto-generated from folder name. This will be used internally.</small>
+            </div>
+            <div class="field">
+                <label class="label">Client Name <span class="req">*</span></label>
+                <input id="ingest-client-name" class="input" type="text" placeholder="e.g. Fry Remodeling">
+            </div>
+
+            <button id="btn-sync" class="btn btn-primary btn-full" onclick="startSyncAndIngest()">
+                🔄 Sync & Ingest
+            </button>
+
+            <!-- PROGRESS TERMINAL -->
+            <div id="progress-container" style="display: none; margin-top: 2rem;">
+                <h4 style="margin: 0 0 0.5rem 0; font-size: 0.9rem;">Ingestion Progress</h4>
+                <div style="background: #1e1e1e; color: #00ff00; font-family: monospace; padding: 1rem; border-radius: var(--radius); height: 200px; overflow-y: auto; font-size: 0.85rem;"
+                    id="progress-terminal">
+                </div>
+            </div>
+
+            <div style="margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid var(--border);">
+                <!-- Clear Client Data block -->
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <div>
+                        <div style="font-weight: 600; font-size: 0.9rem; color: #dc2626;">🗑️ Clear Client Data</div>
+                        <div style="font-size: 0.8rem; color: var(--muted); margin-top: 0.2rem;">Remove all vectors from
+                            Qdrant</div>
+                    </div>
+                    <button class="btn btn-outline btn-sm" style="color: #dc2626; border-color: #fca5a5;"
+                        onclick="clearClient()">Clear Qdrant</button>
+                </div>
+            </div>
+
+        </div>
+
+        <div id="empty-state"
+            style="flex: 1; display: flex; align-items: center; justify-content: center; color: var(--muted); flex-direction: column;">
+            <div style="font-size: 3rem; margin-bottom: 1rem;">📁</div>
+            <p>Select a folder from the sidebar</p>
+        </div>
+    </div>
+</div>
+
+{% block scripts %}
+<script>
+    let activeFolderId = null;
+
+    async function connectDrive() {
+        const btn = document.getElementById('btn-connect');
+        const status = document.getElementById('connect-status');
+        btn.disabled = true;
+        btn.textContent = "Connecting...";
+
+        try {
+            const r = await fetch('/drive/connect');
+            const data = await r.json();
+            if (data.connected) {
+                status.innerHTML = `✅ Connected as <strong>${data.email}</strong>`;
+                showToast('Connected to Google Drive!', 'success');
+                btn.style.display = 'none';
+                loadAllFolders();
+            } else {
+                throw new Error(data.error || 'Connection failed');
+            }
+        } catch (e) {
+            status.innerHTML = `❌ Error: ${e.message}`;
+            showToast('Connection failed', 'error');
+            btn.disabled = false;
+            btn.textContent = "🔌 Connect to Google Drive";
+        }
+    }
+
+    async function loadAllFolders() {
+        document.getElementById('sidebar-loading').style.display = 'block';
+        const list = document.getElementById('folder-list');
+        list.innerHTML = '';
+
+        try {
+            // Using the existing endpoint, but modified to return all accessible folders
+            const r = await fetch('/drive/folders');
+            if (!r.ok) throw new Error("Failed to fetch folders");
+            const folders = await r.json();
+
+            document.getElementById('sidebar-loading').style.display = 'none';
+            if (folders.length === 0) {
+                list.innerHTML = `<div style="color:var(--muted);font-size:.85rem;padding:.5rem;">No folders found. Please share some folders with the service account email.</div>`;
+                return;
+            }
+
+            folders.forEach(f => {
+                const el = document.createElement('div');
+                el.style.cssText = `
+                    padding: 0.6rem 0.8rem;
+                    border-radius: var(--radius);
+                    cursor: pointer;
+                    display: flex;
+                    flex-direction: column;
+                    gap: 0.2rem;
+                    font-size: 0.9rem;
+                    transition: background 0.2s;
+                    border: 1px solid transparent;
+                `;
+                el.onmouseenter = () => { if (activeFolderId !== f.id) el.style.background = '#f1f5f9'; };
+                el.onmouseleave = () => { if (activeFolderId !== f.id) el.style.background = 'transparent'; };
+                el.onclick = () => selectFolder(f.id, f.name, el);
+
+                el.innerHTML = `
+                    <div style="display:flex; align-items:center; gap:0.5rem; font-weight:500;">
+                        <span>📁</span> <span style="word-break: break-all;">${f.name}</span>
+                    </div>
+                `;
+                list.appendChild(el);
+            });
+        } catch (e) {
+            document.getElementById('sidebar-loading').style.display = 'none';
+            list.innerHTML = `<div style="color:red;font-size:.85rem;padding:.5rem;">Error loading folders: ${e.message}</div>`;
+        }
+    }
+
+    async function selectFolder(id, name, el) {
+        activeFolderId = id;
+
+        // Update selection UI
+        const list = document.getElementById('folder-list');
+        Array.from(list.children).forEach(child => {
+            child.style.background = 'transparent';
+            child.style.color = 'var(--text)';
+            child.style.borderColor = 'transparent';
+        });
+        el.style.background = 'var(--bg)';
+        el.style.borderColor = 'var(--border)';
+        el.style.color = 'var(--navy)';
+        el.onmouseleave = null;
+
+        document.getElementById('empty-state').style.display = 'none';
+        document.getElementById('folder-contents').style.display = 'flex';
+        document.getElementById('folder-contents').style.flexDirection = 'column';
+        document.getElementById('selected-folder-title').textContent = `📁 ${name}`;
+
+        // Auto-fill client ID and name
+        const cleanName = name.replace(/[^a-zA-Z0-9 -]/g, "").trim();
+        document.getElementById('ingest-client-name').value = cleanName;
+        document.getElementById('ingest-client-id').value = cleanName.toLowerCase().replace(/ /g, "_").replace(/-/g, "_");
+        document.getElementById('progress-container').style.display = 'none';
+        document.getElementById('btn-sync').disabled = false;
+
+        // Fetch contents
+        const cList = document.getElementById('contents-list');
+        cList.innerHTML = '<div class="spinner" style="width:16px;height:16px;display:inline-block;margin-right:8px;vertical-align:middle;"></div> Loading contents...';
+        try {
+            const r = await fetch(`/drive/folders/${id}/contents`);
+            const data = await r.json();
+
+            let html = [];
+            data.subfolders.forEach(s => html.push(`<div style="padding:2px 0;">📁 ${s.name}</div>`));
+            data.files.forEach(f => {
+                const icon = f.name.endsWith('.pdf') ? '📕' : f.name.endsWith('.docx') ? '📘' : f.name.endsWith('.csv') ? '📊' : '📄';
+                html.push(`<div style="padding:2px 0;">${icon} ${f.name} <span style="opacity:0.5;font-size:0.7rem;">(${(f.size / 1024).toFixed(1)} KB)</span></div>`);
+            });
+
+            cList.innerHTML = html.length > 0 ? html.join('') : '<em>Folder is empty</em>';
+        } catch (e) {
+            cList.innerHTML = `<span style="color:red;">Failed to load contents: ${e.message}</span>`;
+        }
+    }
+
+    function appendToTerminal(msg) {
+        const t = document.getElementById('progress-terminal');
+        const div = document.createElement('div');
+        div.textContent = `> ${msg}`;
+        t.appendChild(div);
+        t.scrollTop = t.scrollHeight;
+    }
+
+    async function startSyncAndIngest() {
+        const clientId = document.getElementById('ingest-client-id').value.trim();
+        const clientName = document.getElementById('ingest-client-name').value.trim();
+        const folderNameTitle = document.getElementById('selected-folder-title').textContent.replace('📁 ', '').trim();
+
+        if (!activeFolderId || !clientId || !clientName) {
+            showToast('All fields required', 'error');
+            return;
+        }
+
+        const btn = document.getElementById('btn-sync');
+        btn.disabled = true;
+
+        document.getElementById('progress-container').style.display = 'block';
+        const term = document.getElementById('progress-terminal');
+        term.innerHTML = '';
+        appendToTerminal(`Connecting to SSE stream for folder ${activeFolderId}...`);
+
+        try {
+            const response = await fetch('/drive/sync-and-ingest', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    drive_folder_id: activeFolderId,
+                    folder_name: folderNameTitle,
+                    client_id: clientId,
+                    client_name: clientName
+                })
+            });
+
+            if (!response.ok) {
+                const err = await response.json();
+                throw new Error(err.detail || "Request failed");
+            }
+
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder('utf-8');
+
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+
+                const chunk = decoder.decode(value, { stream: true });
+                const lines = chunk.split('\\n');
+
+                for (const line of lines) {
+                    if (line.startsWith('data: ')) {
+                        try {
+                            const data = JSON.parse(line.substring(6));
+
+                            if (data.step === 'init') {
+                                appendToTerminal(data.message);
+                            } else if (data.step === 'downloading') {
+                                if (data.file) {
+                                    appendToTerminal(`[${data.progress}/${data.total}] Downloading: ${data.file}`);
+                                } else {
+                                    appendToTerminal(`Starting download...`);
+                                }
+                            } else if (data.step === 'ingesting') {
+                                if (data.file) {
+                                    appendToTerminal(`[${data.progress}/${data.total}] Ingested: ${data.file}`);
+                                } else {
+                                    appendToTerminal(`Starting ingestion pipeline...`);
+                                }
+                            } else if (data.step === 'complete') {
+                                appendToTerminal(`✅ Done! Processed ${data.files_processed} files.`);
+                                showToast('Sync & Ingest Complete!', 'success');
+                                btn.disabled = false;
+                            } else if (data.step === 'error') {
+                                appendToTerminal(`❌ ERROR: ${data.message}`);
+                                btn.disabled = false;
+                            }
+                        } catch (e) {
+                            // Incomplete json chunk
+                            if (line.trim() !== 'data:') {
+                                console.error('Failed to parse SSE JSON:', line);
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (e) {
+            appendToTerminal(`❌ Connection error: ${e.message}`);
+            showToast('Sync failed', 'error');
+            btn.disabled = false;
+        }
+    }
+
+    async function clearClient() {
+        const clientId = document.getElementById('ingest-client-id').value;
+        if (!clientId) return showToast('Client ID is empty', 'error');
+        if (!confirm(`Are you sure you want to clear all vectors for ${clientId}?`)) return;
+
+        try {
+            const r = await fetch(`/ingest/client/${clientId}`, { method: 'DELETE' });
+            if (!r.ok) throw new Error('Failed to delete');
+            showToast('Client data cleared from Qdrant', 'success');
+        } catch (e) {
+            showToast(e.message, 'error');
+        }
+    }
+</script>
+{% endblock %}
+{% endblock %}
